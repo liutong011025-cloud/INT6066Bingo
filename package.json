@@ -4,7 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/sync-static-output.mjs pre",
     "build": "next build",
+    "postbuild": "node scripts/sync-static-output.mjs post",
     "start": "next start",
     "setup-db": "node scripts/setup-db.mjs"
   },
