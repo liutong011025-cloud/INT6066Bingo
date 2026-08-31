@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>INT 6066 Human Bingo Live</title>
+<style>
+:root{--bg:#f6f7fb;--card:#fff;--text:#20232a;--muted:#6c7280;--accent:#5b5bd6;--line:#e5e7ef;--ok:#17895f;--warn:#c56b17}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Arial,sans-serif}
+header{position:sticky;top:0;z-index:20;background:rgba(246,247,251,.95);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.wrap{max-width:1100px;margin:auto;padding:14px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+h1{font-size:19px;margin:0} .sub{font-size:12px;color:var(--muted)}
+.pills{display:flex;gap:8px;flex-wrap:wrap} .pill{background:#fff;border:1px solid var(--line);border-radius:999px;padding:7px 10px;font-size:13px}
+button{border:0;border-radius:10px;padding:10px 13px;background:var(--accent);color:#fff;font-weight:700;cursor:pointer}
+button.secondary{background:#fff;color:var(--text);border:1px solid var(--line)} button.danger{background:#fff0f0;color:#a52828;border:1px solid #f0caca}
+input,select{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 11px;font-size:15px;background:#fff}
+.panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px;margin:14px 0}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;min-height:175px;display:flex;flex-direction:column;gap:9px}
+.card.done{border-color:#b8e4d3;box-shadow:inset 0 0 0 1px #b8e4d3} .q{font-weight:750;font-size:14px;line-height:1.3}
+.row{display:flex;gap:6px} .names{display:flex;flex-direction:column;gap:7px} .mini{padding:8px 10px}
+.statsline{display:grid;grid-template-columns:repeat(3,1fr);gap:10px} .stat{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px}
+.stat b{font-size:24px;display:block} .stat span{font-size:12px;color:var(--muted)}
+.table{width:100%;border-collapse:collapse} .table th,.table td{padding:10px;border-bottom:1px solid var(--line);text-align:left;font-size:14px} .table th{color:var(--muted);font-size:12px}
+.hidden{display:none!important} .notice{font-size:13px;color:var(--muted);line-height:1.45} .good{color:var(--ok)} .warn{color:var(--warn)}
+.progress{height:8px;background:#ececf2;border-radius:99px;overflow:hidden} .bar{height:100%;background:var(--ok);width:0}
+footer{height:70px}
+@media(min-width:760px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+<header><div class="wrap top">
+  <div><h1>INT 6066 · Human Bingo Live</h1><div class="sub" id="roomLabel">Realtime classroom edition</div></div>
+  <div class="pills">
+    <div class="pill">Unique people: <b id="myUnique">0</b></div>
+    <div class="pill">My entries: <b id="myEntries">0</b></div>
+  </div>
+</div></header>
+
+<main class="wrap">
+  <section id="setup" class="panel">
+    <h2 style="margin-top:0">Join the room</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div><div class="sub">Room code</div><input id="room" placeholder="e.g. INT6066"/></div>
+      <div><div class="sub">Your name</div><input id="student" placeholder="e.g. Amy"/></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button onclick="joinRoom()">Start Bingo</button>
+      <button class="secondary" onclick="openTeacher()">Teacher dashboard</button>
+    </div>
+    <p class="notice">Students use the same room code. Their progress and unique-name counts appear on the teacher dashboard in real time.</p>
+  </section>
+
+  <section id="studentView" class="hidden">
+    <div class="panel">
+      <div class="top">
+        <div><b id="hello"></b><div class="sub">Walk around, talk, and add names.</div></div>
+        <button class="secondary" onclick="leaveRoom()">Change room/name</button>
+      </div>
+      <div class="progress" style="margin-top:12px"><div id="bar" class="bar"></div></div>
+      <div class="sub" style="margin-top:6px"><span id="filled">0</span> / 36 prompts completed</div>
+    </div>
+    <div id="grid" class="grid"></div>
+  </section>
+
+  <section id="teacherView" class="hidden">
+    <div class="panel">
+      <div class="top">
+        <div><h2 style="margin:0">Live Dashboard</h2><div class="sub" id="teacherRoom"></div></div>
+        <div style="display:flex;gap:8px">
+          <button class="secondary" onclick="copyStudentLink()">Copy student link</button>
+          <button class="danger" onclick="resetRoom()">Reset room</button>
+        </div>
+      </div>
+    </div>
+    <div class="statsline">
+      <div class="stat"><b id="classStudents">0</b><span>students joined</span></div>
+      <div class="stat"><b id="classConnections">0</b><span>name entries made</span></div>
+      <div class="stat"><b id="classAvg">0</b><span>avg. unique people</span></div>
+    </div>
+    <div class="panel">
+      <h3 style="margin-top:0">Leaderboard</h3>
+      <table class="table"><thead><tr><th>Rank</th><th>Student</th><th>Unique people</th><th>Entries</th><th>Prompts</th></tr></thead><tbody id="leaderBody"></tbody></table>
+    </div>
+    <div class="panel">
+      <h3 style="margin-top:0">Most common Bingo items</h3>
+      <table class="table"><thead><tr><th>Prompt</th><th>Matches</th></tr></thead><tbody id="promptBody"></tbody></table>
+    </div>
+  </section>
+</main>
+<footer></footer>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getDatabase, ref, set, update, onValue, remove, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyACvwGHy1AbnRYN6NO8La1k8cKpYp1Ka0A",
+  authDomain: "int6066-11ea1.firebaseapp.com",
+  databaseURL: "https://int6066-11ea1-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "int6066-11ea1",
+  storageBucket: "int6066-11ea1.firebasestorage.app",
+  messagingSenderId: "864554010275",
+  appId: "1:864554010275:web:66a2c3f95d4bf0b2082116",
+  measurementId: "G-VJG5Q0LMTN"
+};
+
+const PROMPTS = ["Has created a personal website or blog.", "Can name at least 3 different coding languages.", "Knows the meaning of design thinking.", "Loves bubble teas. What types?", "Has designed an app.", "Has more than 5 apps on their phone they've never used. What are they?", "Can explain what an API is.", "Has forgotten a password right after creating it.", "Has tried to zoom in on a paper photo with their fingers.", "Has accidentally \"liked\" something while stalking someone on social media.", "Has won a prize or award in a tech/design competition.", "Has multiple apps for the same purpose, just can't decide which to delete.", "Has used Inquiry-Based Learning in a classroom setting.", "Knows Universal Design for Learning (UDL).", "Can explain the difference between formative and summative assessments.", "Enjoys podcasts about technology.", "Subscribes to a technology or design magazine.", "Has a habit of jogging/swimming.", "Has created a meme.", "Has joined a fitness challenge app but only logged in once.", "Has kept too many browser tabs open \"just in case.\"", "Has made a typo in a password and then questioned their entire memory.", "Has received a call and Googled the number instead of answering.", "Has changed a password, then immediately forgot the new one.", "Knows how to use a hashtag effectively.", "Has spent more time picking a movie than actually watching it.", "Has subscribed to a free trial and forgot to cancel it before being charged.", "Has used tech as an excuse (\"bad connection\") to leave an unwanted conversation.", "Has applied Bloom's Taxonomy in designing a curriculum.", "Has named AI assistant and refers to it like a member of the family. (e.g., will rename ChatGPT)", "Has tried to get existential answers from a chatbot, such as the meaning of life.", "Has been defeated by a captcha multiple times, leading to an identity crisis: \"Am I even human?\"", "Has spent more time trying to make an AI understand a command than it would have taken to do the task manually.", "Has participated in a virtual conference or webinar to present research / project findings.", "Knows what the Zone of Proximal Development (ZPD) is and how to use it.", "Has heard about Social Cognitive Theory."];
+let app, db;
+try { app = initializeApp(firebaseConfig); db = getDatabase(app); }
+catch(e) { console.error(e); }
+
+let roomCode = localStorage.getItem('hb_room') || '';
+let studentName = localStorage.getItem('hb_student') || '';
+let answers = {};
+
+const $ = id => document.getElementById(id);
+const safeKey = s => s.trim().replace(/[.#$\[\]/]/g,'_');
+const norm = s => s.trim().toLowerCase().replace(/\s+/g,' ');
+const escapeHtml = s => String(s).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'})[m]);
+
+function configured() { return !firebaseConfig.apiKey.startsWith('PASTE_'); }
+function studentPath() { return `rooms/${safeKey(roomCode)}/students/${safeKey(studentName)}`; }
+
+window.joinRoom = async function() {
+  roomCode = $('room').value.trim().toUpperCase();
+  studentName = $('student').value.trim();
+  if(!roomCode || !studentName) return alert('Enter room code and your name.');
+  if(!configured()) return alert('Firebase is not configured yet. Open README_SETUP.txt and paste your Firebase config into index.html.');
+  localStorage.setItem('hb_room',roomCode); localStorage.setItem('hb_student',studentName);
+  $('setup').classList.add('hidden'); $('teacherView').classList.add('hidden'); $('studentView').classList.remove('hidden');
+  $('hello').textContent = `Hi, ${studentName} 👋`; $('roomLabel').textContent = `Room: ${roomCode}`;
+  const meRef = ref(db, studentPath());
+  onValue(meRef, snap => {
+    const d=snap.val(); answers=(d&&d.answers)||{}; renderCards();
+  });
+  await update(meRef, {displayName:studentName, joinedAt:serverTimestamp(), lastActive:serverTimestamp()});
+}
+
+function renderCards() {
+  const g=$('grid'); g.innerHTML='';
+  PROMPTS.forEach((p,idx)=> {
+    const vals=answers[idx]||[''];
+    const card=document.createElement('div'); card.className='card'+(vals.some(v=>v.trim())?' done':'');
+    card.innerHTML=`<div class="q">${p}</div><div class="names"></div>`;
+    const names=card.querySelector('.names');
+    vals.forEach((v,i)=> {
+      const r=document.createElement('div'); r.className='row';
+      r.innerHTML=`<input placeholder="Classmate name" value="${escapeHtml(v)}" data-idx="${idx}" data-i="${i}">
+      <button class="secondary mini">${i===vals.length-1?'＋':'×'}</button>`;
+      r.querySelector('input').addEventListener('change',e=>setName(idx,i,e.target.value));
+      r.querySelector('button').onclick=()=> i===vals.length-1?addName(idx):removeName(idx,i);
+      names.appendChild(r);
+    });
+    g.appendChild(card);
+  });
+  updateMyStats();
+}
+
+async function sync() {
+  if(!roomCode||!studentName) return;
+  const all=Object.values(answers).flat().map(x=>x.trim()).filter(Boolean);
+  const unique=[...new Set(all.map(norm))];
+  const filled=Object.values(answers).filter(a=>a.some(v=>v.trim())).length;
+  await update(ref(db,studentPath()), {
+    displayName:studentName, answers, uniqueCount:unique.length, entryCount:all.length,
+    filledCount:filled, lastActive:serverTimestamp()
+  });
+}
+function updateMyStats() {
+  const all=Object.values(answers).flat().map(x=>x.trim()).filter(Boolean);
+  const unique=new Set(all.map(norm)); const filled=Object.values(answers).filter(a=>a.some(v=>v.trim())).length;
+  $('myUnique').textContent=unique.size; $('myEntries').textContent=all.length; $('filled').textContent=filled; $('bar').style.width=(filled/PROMPTS.length*100)+'%';
+}
+async function setName(idx,i,val){ if(!answers[idx])answers[idx]=['']; answers[idx][i]=val; await sync(); }
+async function addName(idx){ if(!answers[idx])answers[idx]=['']; answers[idx].push(''); renderCards(); }
+async function removeName(idx,i){ answers[idx].splice(i,1); if(!answers[idx].length)answers[idx]=['']; await sync(); }
+
+window.leaveRoom=function(){ $('studentView').classList.add('hidden'); $('teacherView').classList.add('hidden'); $('setup').classList.remove('hidden'); $('room').value=roomCode; $('student').value=studentName; };
+window.openTeacher=function() {
+  roomCode=$('room').value.trim().toUpperCase();
+  if(!roomCode) return alert('Enter a room code first.');
+  if(!configured()) return alert('Firebase is not configured yet. Open README_SETUP.txt.');
+  $('setup').classList.add('hidden'); $('studentView').classList.add('hidden'); $('teacherView').classList.remove('hidden');
+  $('teacherRoom').textContent=`Room: ${roomCode}`; $('roomLabel').textContent=`Teacher dashboard · Room: ${roomCode}`;
+  onValue(ref(db,`rooms/${safeKey(roomCode)}/students`), snap=>renderDashboard(snap.val()||{}));
+}
+function renderDashboard(students) {
+  const arr=Object.values(students).map(s=>({
+    name:s.displayName||'Anonymous', unique:+s.uniqueCount||0, entries:+s.entryCount||0, filled:+s.filledCount||0, answers:s.answers||{}
+  })).sort((a,b)=>b.unique-a.unique||b.entries-a.entries);
+  $('classStudents').textContent=arr.length;
+  $('classConnections').textContent=arr.reduce((x,s)=>x+s.entries,0);
+  $('classAvg').textContent=arr.length?(arr.reduce((x,s)=>x+s.unique,0)/arr.length).toFixed(1):'0';
+  $('leaderBody').innerHTML=arr.map((s,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(s.name)}</td><td><b>${s.unique}</b></td><td>${s.entries}</td><td>${s.filled}/${PROMPTS.length}</td></tr>`).join('');
+  const counts=PROMPTS.map((p,idx)=>({p,c:arr.reduce((sum,s)=>sum+((s.answers[idx]||[]).filter(v=>String(v).trim()).length),0)})).sort((a,b)=>b.c-a.c);
+  $('promptBody').innerHTML=counts.slice(0,10).map(x=>`<tr><td>${escapeHtml(x.p)}</td><td><b>${x.c}</b></td></tr>`).join('');
+}
+window.copyStudentLink=async function() {
+  const u=new URL(location.href); u.searchParams.set('room',roomCode); u.searchParams.delete('teacher');
+  await navigator.clipboard.writeText(u.toString()); alert('Student link copied.');
+}
+window.resetRoom=async function() {
+  if(confirm(`Delete all live data in room ${roomCode}?`)) await remove(ref(db,`rooms/${safeKey(roomCode)}`));
+}
+
+const qs=new URLSearchParams(location.search);
+if(qs.get('room')) $('room').value=qs.get('room').toUpperCase(); else $('room').value=roomCode;
+$('student').value=studentName;
+if(qs.get('teacher')==='1') { $('room').value=qs.get('room')||roomCode; openTeacher(); }
+</script>
+</body>
+</html>
