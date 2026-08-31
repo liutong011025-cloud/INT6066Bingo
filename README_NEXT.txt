@@ -3,6 +3,16 @@ INT6066 Human Bingo — Vercel + Supabase
 This version hosts on Vercel and stores live classroom data in Supabase Postgres + Realtime.
 It no longer uses Firebase Realtime Database.
 
+Vercel project settings (this app is a static export, not the Next.js serverless runtime):
+  Framework Preset: Other
+  Turn OFF any override that sets Framework to Next.js
+  Build Command: npm run build
+  Output Directory: public
+  Install Command: npm install
+
+If Framework stays on Next.js while Output Directory is public, Vercel looks for
+public/routes-manifest.json and the deploy fails.
+
 Required Vercel environment variables (public only):
   NEXT_PUBLIC_SUPABASE_URL
   NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -21,5 +31,5 @@ Classroom URLs:
 
 Architecture:
   Browsers talk directly to Supabase (same pattern as the old Firebase client).
-  Vercel only serves the Next.js app. 100 concurrent students do not go through
+  Vercel only serves the static Next.js export. 100 concurrent students do not go through
   Vercel serverless functions for each bingo write.
