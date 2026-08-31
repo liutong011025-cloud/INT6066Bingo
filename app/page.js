@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import { PROMPTS } from "@/lib/prompts";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 
+const TEACHER_PASSWORD = "123321";
+const TEACHER_AUTH_KEY = "hb_teacher_ok";
 const safeKey = (s) => s.trim().replace(/[.#$[\]/]/g, "_");
 const norm = (s) => s.trim().toLowerCase().replace(/\s+/g, " ");
 
@@ -25,7 +27,10 @@ function BingoApp() {
   const [answers, setAnswers] = useState({});
   const [students, setStudents] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordError, setPasswordError] = useState("");
   const channelRef = useRef(null);
+  const pendingTeacherRoom = useRef("");
   const studentRef = useRef({ roomCode: "", studentName: "" });
   const answersRef = useRef({});
 
@@ -129,7 +134,7 @@ function BingoApp() {
   }, [nameInput, roomInput, subscribeRoom]);
 
   const openTeacher = useCallback(async (roomOverride) => {
-    const room = (roomOverride || roomInput).trim().toUpperCase();
+    const room = (roomOverride || pendingTeacherRoom.current || roomInput).trim().toUpperCase();
     if (!room) return alert("Enter a room code first.");
     if (!isSupabaseConfigured()) return alert("Supabase is not configured yet.");
     setBusy(true);
@@ -148,6 +153,29 @@ function BingoApp() {
     }
   }, [loadRoom, roomInput, subscribeRoom]);
 
+  const requestTeacher = useCallback((roomOverride) => {
+    const room = (roomOverride || roomInput).trim().toUpperCase();
+    if (!room) return alert("Enter a room code first.");
+    pendingTeacherRoom.current = room;
+    if (typeof window !== "undefined" && sessionStorage.getItem(TEACHER_AUTH_KEY) === "1") {
+      return openTeacher(room);
+    }
+    setPasswordInput("");
+    setPasswordError("");
+    setView("teacherLock");
+  }, [openTeacher, roomInput]);
+
+  function submitTeacherPassword(e) {
+    e?.preventDefault?.();
+    if (passwordInput !== TEACHER_PASSWORD) {
+      setPasswordError("Incorrect password.");
+      return;
+    }
+    sessionStorage.setItem(TEACHER_AUTH_KEY, "1");
+    setPasswordError("");
+    openTeacher(pendingTeacherRoom.current || roomInput);
+  }
+
   useEffect(() => {
     const savedRoom = typeof window !== "undefined" ? localStorage.getItem("hb_room") || "" : "";
     const savedName = typeof window !== "undefined" ? localStorage.getItem("hb_student") || "" : "";
@@ -155,7 +183,7 @@ function BingoApp() {
     setRoomInput(urlRoom || savedRoom);
     setNameInput(savedName);
     if (searchParams.get("teacher") === "1" && (urlRoom || savedRoom)) {
-      openTeacher(urlRoom || savedRoom);
+      requestTeacher(urlRoom || savedRoom);
     }
     return () => { unsubscribe(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -224,6 +252,7 @@ function BingoApp() {
 
   const headerLabel =
     view === "teacher" ? `Teacher dashboard · Room: ${roomCode}` :
+    view === "teacherLock" ? "Teacher access" :
     view === "student" ? `Room: ${roomCode}` :
     "Realtime classroom edition";
 
@@ -258,9 +287,31 @@ function BingoApp() {
             </div>
             <div className="actions">
               <button onClick={joinRoom} disabled={busy}>Start Bingo</button>
-              <button className="secondary" onClick={() => openTeacher()} disabled={busy}>Teacher dashboard</button>
+              <button className="secondary" onClick={() => requestTeacher()} disabled={busy}>Teacher dashboard</button>
             </div>
             <p className="notice">Students use the same room code. Their progress and unique-name counts appear on the teacher dashboard in real time.</p>
+          </section>
+        )}
+
+        {view === "teacherLock" && (
+          <section className="panel">
+            <h2>Teacher access</h2>
+            <p className="notice">Enter the teacher password to open the live dashboard.</p>
+            <form onSubmit={submitTeacherPassword}>
+              <div className="sub">Password</div>
+              <input
+                type="password"
+                autoFocus
+                value={passwordInput}
+                onChange={(e) => { setPasswordInput(e.target.value); setPasswordError(""); }}
+                placeholder="Teacher password"
+              />
+              {passwordError ? <p className="notice warn" style={{ marginTop: 8 }}>{passwordError}</p> : null}
+              <div className="actions">
+                <button type="submit" disabled={busy}>Unlock dashboard</button>
+                <button type="button" className="secondary" onClick={() => setView("setup")}>Back</button>
+              </div>
+            </form>
           </section>
         )}
 
