@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { COURSES, getCourseMeta, getPrompts } from "@/lib/prompts";
+import { COURSES, getCourseMeta, getPrompts, normalizeRoom } from "@/lib/prompts";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 
 const TEACHER_PASSWORD = "123321";
@@ -84,19 +84,19 @@ function BingoApp() {
         filled_count: s.filled,
         last_active: new Date().toISOString()
       })
-      .eq("room_code", room)
+      .eq("room_code", normalizeRoom(room))
       .eq("student_key", safeKey(name));
     if (error) throw error;
   }, []);
 
   const loadRoom = useCallback(async (room) => {
+    const want = normalizeRoom(room);
     const { data, error } = await getSupabase()
       .from("students")
-      .select("display_name, answers, unique_count, entry_count, filled_count")
-      .eq("room_code", room)
+      .select("display_name, answers, unique_count, entry_count, filled_count, room_code")
       .order("unique_count", { ascending: false });
     if (error) throw error;
-    setStudents(data || []);
+    setStudents((data || []).filter((row) => normalizeRoom(row.room_code) === want));
   }, []);
 
   const subscribeRoom = useCallback(async (room, onChange, filter) => {
@@ -117,7 +117,7 @@ function BingoApp() {
     if (error) throw error;
     const next = {};
     for (const row of data || []) {
-      const code = String(row.room_code || "").toUpperCase();
+      const code = normalizeRoom(row.room_code);
       if (!code) continue;
       if (!next[code]) next[code] = { students: 0, entries: 0, uniqueSum: 0 };
       next[code].students += 1;
@@ -145,7 +145,7 @@ function BingoApp() {
   }, [loadCourses, subscribeRoom]);
 
   const joinRoom = useCallback(async () => {
-    const room = roomInput.trim().toUpperCase();
+    const room = normalizeRoom(roomInput);
     const name = nameInput.trim();
     if (!room || !name) return alert("Enter room code and your name.");
     if (!isSupabaseConfigured()) return alert("Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.");
@@ -184,7 +184,7 @@ function BingoApp() {
   }, [nameInput, roomInput, subscribeRoom]);
 
   const openTeacher = useCallback(async (roomOverride) => {
-    const room = String(roomOverride || "").trim().toUpperCase();
+    const room = normalizeRoom(roomOverride);
     if (!room) return alert("Choose a course first.");
     if (!isSupabaseConfigured()) return alert("Supabase is not configured yet.");
     setBusy(true);
@@ -192,9 +192,12 @@ function BingoApp() {
       setRoomCode(room);
       setView("teacher");
       await loadRoom(room);
-      await subscribeRoom(room, () => {
-        loadRoom(room).catch(console.error);
-      }, `room_code=eq.${room}`);
+      await subscribeRoom(room, (payload) => {
+        const row = payload.new || payload.old;
+        if (!row || normalizeRoom(row.room_code) === room) {
+          loadRoom(room).catch(console.error);
+        }
+      });
     } catch (err) {
       console.error(err);
       alert(err.message || "Could not open the dashboard.");
@@ -224,9 +227,9 @@ function BingoApp() {
   }
 
   useEffect(() => {
-    const savedRoom = typeof window !== "undefined" ? localStorage.getItem("hb_room") || "" : "";
+    const savedRoom = typeof window !== "undefined" ? normalizeRoom(localStorage.getItem("hb_room") || "") : "";
     const savedName = typeof window !== "undefined" ? localStorage.getItem("hb_student") || "" : "";
-    const urlRoom = (searchParams.get("room") || "").toUpperCase();
+    const urlRoom = normalizeRoom(searchParams.get("room") || "");
     setRoomInput(urlRoom || savedRoom);
     setNameInput(savedName);
     if (searchParams.get("teacher") === "1") {
@@ -251,11 +254,17 @@ function BingoApp() {
     catch (err) { console.error(err); alert(err.message || "Could not save."); }
   }
 
-  function leaveRoom() {
+  function goBack() {
+    if (view === "teacher") {
+      showCoursePicker();
+      return;
+    }
     unsubscribe();
     setView("setup");
-    setRoomInput(roomCode);
-    setNameInput(studentName);
+    if (view === "student") {
+      setRoomInput(roomCode);
+      setNameInput(studentName);
+    }
   }
 
   async function copyStudentLink() {
@@ -267,10 +276,10 @@ function BingoApp() {
   }
 
   async function deleteClass(code) {
-    const room = String(code || "").trim().toUpperCase();
+    const room = normalizeRoom(code);
     if (!room) return;
     const meta = getCourseMeta(room);
-    const count = courseStats[room]?.students || (room === roomCode ? students.length : 0);
+    const count = courseStats[room]?.students || (normalizeRoom(roomCode) === room ? students.length : 0);
     const first = confirm(
       `Delete class ${meta.title}?\n\nThis will permanently remove ${count} student record(s) and all bingo answers.\nThis cannot be undone.`
     );
@@ -279,11 +288,20 @@ function BingoApp() {
     if (!second) return;
     setBusy(true);
     try {
-      const { error } = await getSupabase().from("students").delete().eq("room_code", room);
-      if (error) throw error;
-      if (room === roomCode) setStudents([]);
+      const { data, error: readErr } = await getSupabase()
+        .from("students")
+        .select("id, room_code");
+      if (readErr) throw readErr;
+      const ids = (data || [])
+        .filter((row) => normalizeRoom(row.room_code) === room)
+        .map((row) => row.id);
+      if (ids.length) {
+        const { error } = await getSupabase().from("students").delete().in("id", ids);
+        if (error) throw error;
+      }
+      if (normalizeRoom(roomCode) === room) setStudents([]);
       await loadCourses();
-      if (view === "teacher" && room === roomCode) await showCoursePicker();
+      if (view === "teacher" && normalizeRoom(roomCode) === room) await showCoursePicker();
     } catch (err) {
       console.error(err);
       alert(err.message || "Could not delete the class.");
@@ -312,7 +330,7 @@ function BingoApp() {
       uniqueSum: courseStats[c.code]?.uniqueSum || 0
     }));
     const extras = Object.keys(courseStats)
-      .filter((code) => !COURSES.some((c) => c.code === code))
+      .filter((code) => !COURSES.some((c) => c.code === normalizeRoom(code)))
       .sort()
       .map((code) => ({
         ...getCourseMeta(code),
@@ -349,6 +367,9 @@ function BingoApp() {
             <div className="sub">{headerLabel}</div>
           </div>
           <div className="pills">
+            {view !== "setup" && (
+              <button className="secondary" onClick={goBack} disabled={busy}>返回</button>
+            )}
             <div className="pill">Unique people: <b>{mine.unique}</b></div>
             <div className="pill">My entries: <b>{mine.entries}</b></div>
           </div>
@@ -393,7 +414,7 @@ function BingoApp() {
               {passwordError ? <p className="notice warn" style={{ marginTop: 8 }}>{passwordError}</p> : null}
               <div className="actions">
                 <button type="submit" disabled={busy}>Continue</button>
-                <button type="button" className="secondary" onClick={() => setView("setup")}>Back</button>
+                <button type="button" className="secondary" onClick={goBack}>返回</button>
               </div>
             </form>
           </section>
@@ -406,7 +427,7 @@ function BingoApp() {
                 <h2 style={{ margin: 0 }}>Choose a course</h2>
                 <div className="sub">Select a class to open its live dashboard.</div>
               </div>
-              <button className="secondary" onClick={() => { unsubscribe(); setView("setup"); }}>Back</button>
+              <button className="secondary" onClick={goBack}>返回</button>
             </div>
             <div className="course-grid">
               {courseList.map((course) => (
@@ -435,7 +456,7 @@ function BingoApp() {
                   <b>Hi, {studentName} 👋</b>
                   <div className="sub">Walk around, talk, and add names.</div>
                 </div>
-                <button className="secondary" onClick={leaveRoom}>Change room/name</button>
+                <button className="secondary" onClick={goBack}>返回</button>
               </div>
               <div className="progress" style={{ marginTop: 12 }}>
                 <div className="bar" style={{ width: `${(mine.filled / prompts.length) * 100}%` }} />
@@ -489,7 +510,7 @@ function BingoApp() {
                   <div className="sub">{getCourseMeta(roomCode).title}</div>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button className="secondary" onClick={showCoursePicker}>All courses</button>
+                  <button className="secondary" onClick={goBack} disabled={busy}>返回</button>
                   <button className="secondary" onClick={copyStudentLink}>Copy student link</button>
                   <button className="danger" onClick={() => deleteClass(roomCode)} disabled={busy}>Delete class</button>
                 </div>
