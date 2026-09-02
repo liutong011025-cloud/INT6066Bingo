@@ -117,8 +117,27 @@ footer { height: 70px; }
 .setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 
+.course-grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 12px; }
+.course-card {
+  text-align: left;
+  width: 100%;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  color: inherit;
+  font-weight: 500;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.course-card:hover { border-color: var(--accent); }
+.course-card b { display: block; font-size: 20px; }
+.course-meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+
 @media (min-width: 700px) {
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .course-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (min-width: 1100px) {
   .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
