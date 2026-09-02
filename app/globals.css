@@ -133,7 +133,8 @@ footer { height: 70px; }
 }
 .course-card:hover { border-color: var(--accent); }
 .course-card b { display: block; font-size: 20px; }
-.course-meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.course-card-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.course-card-actions button { width: auto; }
 
 @media (min-width: 700px) {
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
