@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "INT 6066 Human Bingo Live",
+  title: "Human Bingo Live",
   description: "Realtime classroom Human Bingo"
 };
 
