@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { PROMPTS } from "@/lib/prompts";
+import { getPrompts } from "@/lib/prompts";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 
 const TEACHER_PASSWORD = "123321";
@@ -15,6 +15,23 @@ function statsFromAnswers(answers) {
   const unique = new Set(all.map(norm));
   const filled = Object.values(answers).filter((a) => (a || []).some((v) => String(v).trim())).length;
   return { all, unique: unique.size, entries: all.length, filled };
+}
+
+function namedCount(vals) {
+  return (vals || []).filter((v) => String(v).trim()).length;
+}
+
+function cardLook(idx, count) {
+  const hue = (idx * 47 + 12) % 360;
+  const lightness = Math.max(32, 90 - count * 11);
+  const saturation = Math.min(78, 48 + count * 7);
+  const borderLight = Math.max(22, lightness - 16);
+  return {
+    background: `hsl(${hue} ${saturation}% ${lightness}%)`,
+    borderColor: `hsl(${hue} ${Math.min(85, saturation + 8)}% ${borderLight}%)`,
+    dark: lightness < 78,
+    darker: lightness < 52
+  };
 }
 
 function BingoApp() {
@@ -43,6 +60,7 @@ function BingoApp() {
   }, [answers]);
 
   const mine = useMemo(() => statsFromAnswers(answers), [answers]);
+  const prompts = useMemo(() => getPrompts(roomCode || roomInput), [roomCode, roomInput]);
 
   const unsubscribe = useCallback(async () => {
     const supabase = isSupabaseConfigured() ? getSupabase() : null;
@@ -242,7 +260,7 @@ function BingoApp() {
   const classAvg = ranked.length
     ? (ranked.reduce((x, s) => x + s.unique, 0) / ranked.length).toFixed(1)
     : "0";
-  const promptCounts = PROMPTS
+  const promptCounts = prompts
     .map((p, idx) => ({
       p,
       c: ranked.reduce((sum, s) => sum + ((s.answers[idx] || []).filter((v) => String(v).trim()).length), 0)
@@ -261,7 +279,7 @@ function BingoApp() {
       <header>
         <div className="wrap top">
           <div>
-            <h1>INT 6066 · Human Bingo Live</h1>
+            <h1>Human Bingo Live</h1>
             <div className="sub">{headerLabel}</div>
           </div>
           <div className="pills">
@@ -278,7 +296,7 @@ function BingoApp() {
             <div className="setup-grid">
               <div>
                 <div className="sub">Room code</div>
-                <input value={roomInput} onChange={(e) => setRoomInput(e.target.value)} placeholder="e.g. INT6066" />
+                <input value={roomInput} onChange={(e) => setRoomInput(e.target.value)} placeholder="e.g. INT6066 or INT6136P" />
               </div>
               <div>
                 <div className="sub">Your name</div>
@@ -289,7 +307,7 @@ function BingoApp() {
               <button onClick={joinRoom} disabled={busy}>Start Bingo</button>
               <button className="secondary" onClick={() => requestTeacher()} disabled={busy}>Teacher dashboard</button>
             </div>
-            <p className="notice">Students use the same room code. Their progress and unique-name counts appear on the teacher dashboard in real time.</p>
+            <p className="notice">Students use the same room code. INT6066 and INT6136P use different bingo cards. Progress appears on the teacher dashboard in real time.</p>
           </section>
         )}
 
@@ -326,16 +344,18 @@ function BingoApp() {
                 <button className="secondary" onClick={leaveRoom}>Change room/name</button>
               </div>
               <div className="progress" style={{ marginTop: 12 }}>
-                <div className="bar" style={{ width: `${(mine.filled / PROMPTS.length) * 100}%` }} />
+                <div className="bar" style={{ width: `${(mine.filled / prompts.length) * 100}%` }} />
               </div>
-              <div className="sub" style={{ marginTop: 6 }}>{mine.filled} / {PROMPTS.length} prompts completed</div>
+              <div className="sub" style={{ marginTop: 6 }}>{mine.filled} / {prompts.length} prompts completed</div>
             </div>
             <div className="grid">
-              {PROMPTS.map((prompt, idx) => {
+              {prompts.map((prompt, idx) => {
                 const vals = answers[idx]?.length ? answers[idx] : [""];
-                const done = vals.some((v) => String(v).trim());
+                const count = namedCount(vals);
+                const look = cardLook(idx, count);
+                const tone = look.darker ? " is-darker" : look.dark ? " is-dark" : "";
                 return (
-                  <div className={`card${done ? " done" : ""}`} key={idx}>
+                  <div className={`card${tone}`} key={idx} style={{ background: look.background, borderColor: look.borderColor }}>
                     <div className="q">{prompt}</div>
                     <div className="names">
                       {vals.map((v, i) => (
@@ -398,7 +418,7 @@ function BingoApp() {
                       <td>{s.name}</td>
                       <td><b>{s.unique}</b></td>
                       <td>{s.entries}</td>
-                      <td>{s.filled}/{PROMPTS.length}</td>
+                      <td>{s.filled}/{prompts.length}</td>
                     </tr>
                   ))}
                 </tbody>
