@@ -266,11 +266,30 @@ function BingoApp() {
     alert("Student link copied.");
   }
 
-  async function resetRoom() {
-    if (!confirm(`Delete all live data in room ${roomCode}?`)) return;
-    const { error } = await getSupabase().from("students").delete().eq("room_code", roomCode);
-    if (error) return alert(error.message);
-    setStudents([]);
+  async function deleteClass(code) {
+    const room = String(code || "").trim().toUpperCase();
+    if (!room) return;
+    const meta = getCourseMeta(room);
+    const count = courseStats[room]?.students || (room === roomCode ? students.length : 0);
+    const first = confirm(
+      `Delete class ${meta.title}?\n\nThis will permanently remove ${count} student record(s) and all bingo answers.\nThis cannot be undone.`
+    );
+    if (!first) return;
+    const second = confirm(`Please confirm again: delete ${meta.title} now?`);
+    if (!second) return;
+    setBusy(true);
+    try {
+      const { error } = await getSupabase().from("students").delete().eq("room_code", room);
+      if (error) throw error;
+      if (room === roomCode) setStudents([]);
+      await loadCourses();
+      if (view === "teacher" && room === roomCode) await showCoursePicker();
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Could not delete the class.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   const ranked = useMemo(() => {
@@ -391,19 +410,18 @@ function BingoApp() {
             </div>
             <div className="course-grid">
               {courseList.map((course) => (
-                <button
-                  key={course.code}
-                  className="course-card"
-                  onClick={() => openTeacher(course.code)}
-                  disabled={busy}
-                >
+                <div className="course-card" key={course.code}>
                   <b>{course.title}</b>
                   <div className="notice" style={{ margin: 0 }}>{course.blurb}</div>
                   <div className="course-meta">
                     <span>{course.students || 0} students</span>
                     <span>{course.entries || 0} entries</span>
                   </div>
-                </button>
+                  <div className="course-card-actions">
+                    <button onClick={() => openTeacher(course.code)} disabled={busy}>Open dashboard</button>
+                    <button className="danger" onClick={() => deleteClass(course.code)} disabled={busy}>Delete class</button>
+                  </div>
+                </div>
               ))}
             </div>
           </section>
@@ -473,7 +491,7 @@ function BingoApp() {
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button className="secondary" onClick={showCoursePicker}>All courses</button>
                   <button className="secondary" onClick={copyStudentLink}>Copy student link</button>
-                  <button className="danger" onClick={resetRoom}>Reset room</button>
+                  <button className="danger" onClick={() => deleteClass(roomCode)} disabled={busy}>Delete class</button>
                 </div>
               </div>
             </div>
