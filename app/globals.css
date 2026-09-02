@@ -110,7 +110,9 @@ input, select {
 .table th, .table td { padding: 10px; border-bottom: 1px solid var(--line); text-align: left; font-size: 14px; }
 .table th { color: var(--muted); font-size: 12px; }
 
-.notice { font-size: 13px; color: var(--muted); line-height: 1.45; }
+.howto { margin: 10px 0 0; padding-left: 22px; }
+.howto li { margin: 6px 0; font-size: 14px; line-height: 1.45; color: var(--text); }
+.howto-close { margin: 10px 0 0; font-size: 14px; }
 .progress { height: 8px; background: #ececf2; border-radius: 99px; overflow: hidden; }
 .bar { height: 100%; background: var(--ok); width: 0; transition: width .2s ease; }
 footer { height: 70px; }
