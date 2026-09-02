@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { getPrompts } from "@/lib/prompts";
+import { COURSES, getCourseMeta, getPrompts } from "@/lib/prompts";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 
 const TEACHER_PASSWORD = "123321";
@@ -46,8 +46,8 @@ function BingoApp() {
   const [busy, setBusy] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
   const [passwordError, setPasswordError] = useState("");
+  const [courseStats, setCourseStats] = useState({});
   const channelRef = useRef(null);
-  const pendingTeacherRoom = useRef("");
   const studentRef = useRef({ roomCode: "", studentName: "" });
   const answersRef = useRef({});
 
@@ -101,16 +101,48 @@ function BingoApp() {
 
   const subscribeRoom = useCallback(async (room, onChange, filter) => {
     await unsubscribe();
+    const query = { event: "*", schema: "public", table: "students" };
+    if (filter) query.filter = filter;
     const channel = getSupabase()
       .channel(`room:${room}:${filter || "all"}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "students", filter: filter || `room_code=eq.${room}` },
-        onChange
-      )
+      .on("postgres_changes", query, onChange)
       .subscribe();
     channelRef.current = channel;
   }, [unsubscribe]);
+
+  const loadCourses = useCallback(async () => {
+    const { data, error } = await getSupabase()
+      .from("students")
+      .select("room_code, unique_count, entry_count");
+    if (error) throw error;
+    const next = {};
+    for (const row of data || []) {
+      const code = String(row.room_code || "").toUpperCase();
+      if (!code) continue;
+      if (!next[code]) next[code] = { students: 0, entries: 0, uniqueSum: 0 };
+      next[code].students += 1;
+      next[code].entries += +row.entry_count || 0;
+      next[code].uniqueSum += +row.unique_count || 0;
+    }
+    setCourseStats(next);
+  }, []);
+
+  const showCoursePicker = useCallback(async () => {
+    if (!isSupabaseConfigured()) return alert("Supabase is not configured yet.");
+    setBusy(true);
+    try {
+      setView("teacherCourses");
+      await loadCourses();
+      await subscribeRoom("all-courses", () => {
+        loadCourses().catch(console.error);
+      });
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Could not load courses.");
+    } finally {
+      setBusy(false);
+    }
+  }, [loadCourses, subscribeRoom]);
 
   const joinRoom = useCallback(async () => {
     const room = roomInput.trim().toUpperCase();
@@ -152,8 +184,8 @@ function BingoApp() {
   }, [nameInput, roomInput, subscribeRoom]);
 
   const openTeacher = useCallback(async (roomOverride) => {
-    const room = (roomOverride || pendingTeacherRoom.current || roomInput).trim().toUpperCase();
-    if (!room) return alert("Enter a room code first.");
+    const room = String(roomOverride || "").trim().toUpperCase();
+    if (!room) return alert("Choose a course first.");
     if (!isSupabaseConfigured()) return alert("Supabase is not configured yet.");
     setBusy(true);
     try {
@@ -162,26 +194,23 @@ function BingoApp() {
       await loadRoom(room);
       await subscribeRoom(room, () => {
         loadRoom(room).catch(console.error);
-      });
+      }, `room_code=eq.${room}`);
     } catch (err) {
       console.error(err);
       alert(err.message || "Could not open the dashboard.");
     } finally {
       setBusy(false);
     }
-  }, [loadRoom, roomInput, subscribeRoom]);
+  }, [loadRoom, subscribeRoom]);
 
-  const requestTeacher = useCallback((roomOverride) => {
-    const room = (roomOverride || roomInput).trim().toUpperCase();
-    if (!room) return alert("Enter a room code first.");
-    pendingTeacherRoom.current = room;
+  const requestTeacher = useCallback(() => {
     if (typeof window !== "undefined" && sessionStorage.getItem(TEACHER_AUTH_KEY) === "1") {
-      return openTeacher(room);
+      return showCoursePicker();
     }
     setPasswordInput("");
     setPasswordError("");
     setView("teacherLock");
-  }, [openTeacher, roomInput]);
+  }, [showCoursePicker]);
 
   function submitTeacherPassword(e) {
     e?.preventDefault?.();
@@ -191,7 +220,7 @@ function BingoApp() {
     }
     sessionStorage.setItem(TEACHER_AUTH_KEY, "1");
     setPasswordError("");
-    openTeacher(pendingTeacherRoom.current || roomInput);
+    showCoursePicker();
   }
 
   useEffect(() => {
@@ -200,8 +229,8 @@ function BingoApp() {
     const urlRoom = (searchParams.get("room") || "").toUpperCase();
     setRoomInput(urlRoom || savedRoom);
     setNameInput(savedName);
-    if (searchParams.get("teacher") === "1" && (urlRoom || savedRoom)) {
-      requestTeacher(urlRoom || savedRoom);
+    if (searchParams.get("teacher") === "1") {
+      requestTeacher();
     }
     return () => { unsubscribe(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -256,6 +285,23 @@ function BingoApp() {
       .sort((a, b) => b.unique - a.unique || b.entries - a.entries);
   }, [students]);
 
+  const courseList = useMemo(() => {
+    const known = COURSES.map((c) => ({
+      ...c,
+      students: courseStats[c.code]?.students || 0,
+      entries: courseStats[c.code]?.entries || 0,
+      uniqueSum: courseStats[c.code]?.uniqueSum || 0
+    }));
+    const extras = Object.keys(courseStats)
+      .filter((code) => !COURSES.some((c) => c.code === code))
+      .sort()
+      .map((code) => ({
+        ...getCourseMeta(code),
+        ...courseStats[code]
+      }));
+    return [...known, ...extras];
+  }, [courseStats]);
+
   const classConnections = ranked.reduce((x, s) => x + s.entries, 0);
   const classAvg = ranked.length
     ? (ranked.reduce((x, s) => x + s.unique, 0) / ranked.length).toFixed(1)
@@ -269,7 +315,8 @@ function BingoApp() {
     .slice(0, 10);
 
   const headerLabel =
-    view === "teacher" ? `Teacher dashboard · Room: ${roomCode}` :
+    view === "teacher" ? `Teacher dashboard · ${getCourseMeta(roomCode).title}` :
+    view === "teacherCourses" ? "All courses" :
     view === "teacherLock" ? "Teacher access" :
     view === "student" ? `Room: ${roomCode}` :
     "Realtime classroom edition";
@@ -305,7 +352,7 @@ function BingoApp() {
             </div>
             <div className="actions">
               <button onClick={joinRoom} disabled={busy}>Start Bingo</button>
-              <button className="secondary" onClick={() => requestTeacher()} disabled={busy}>Teacher dashboard</button>
+              <button className="secondary" onClick={requestTeacher} disabled={busy}>Teacher dashboard</button>
             </div>
             <p className="notice">Students use the same room code. INT6066 and INT6136P use different bingo cards. Progress appears on the teacher dashboard in real time.</p>
           </section>
@@ -314,7 +361,7 @@ function BingoApp() {
         {view === "teacherLock" && (
           <section className="panel">
             <h2>Teacher access</h2>
-            <p className="notice">Enter the teacher password to open the live dashboard.</p>
+            <p className="notice">Enter the teacher password to see all courses.</p>
             <form onSubmit={submitTeacherPassword}>
               <div className="sub">Password</div>
               <input
@@ -326,10 +373,39 @@ function BingoApp() {
               />
               {passwordError ? <p className="notice warn" style={{ marginTop: 8 }}>{passwordError}</p> : null}
               <div className="actions">
-                <button type="submit" disabled={busy}>Unlock dashboard</button>
+                <button type="submit" disabled={busy}>Continue</button>
                 <button type="button" className="secondary" onClick={() => setView("setup")}>Back</button>
               </div>
             </form>
+          </section>
+        )}
+
+        {view === "teacherCourses" && (
+          <section className="panel">
+            <div className="top">
+              <div>
+                <h2 style={{ margin: 0 }}>Choose a course</h2>
+                <div className="sub">Select a class to open its live dashboard.</div>
+              </div>
+              <button className="secondary" onClick={() => { unsubscribe(); setView("setup"); }}>Back</button>
+            </div>
+            <div className="course-grid">
+              {courseList.map((course) => (
+                <button
+                  key={course.code}
+                  className="course-card"
+                  onClick={() => openTeacher(course.code)}
+                  disabled={busy}
+                >
+                  <b>{course.title}</b>
+                  <div className="notice" style={{ margin: 0 }}>{course.blurb}</div>
+                  <div className="course-meta">
+                    <span>{course.students || 0} students</span>
+                    <span>{course.entries || 0} entries</span>
+                  </div>
+                </button>
+              ))}
+            </div>
           </section>
         )}
 
@@ -392,9 +468,10 @@ function BingoApp() {
               <div className="top">
                 <div>
                   <h2 style={{ margin: 0 }}>Live Dashboard</h2>
-                  <div className="sub">Room: {roomCode}</div>
+                  <div className="sub">{getCourseMeta(roomCode).title}</div>
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button className="secondary" onClick={showCoursePicker}>All courses</button>
                   <button className="secondary" onClick={copyStudentLink}>Copy student link</button>
                   <button className="danger" onClick={resetRoom}>Reset room</button>
                 </div>
