@@ -368,7 +368,7 @@ function BingoApp() {
           </div>
           <div className="pills">
             {view !== "setup" && (
-              <button className="secondary" onClick={goBack} disabled={busy}>返回</button>
+              <button className="secondary" onClick={goBack} disabled={busy}>Back</button>
             )}
             <div className="pill">Unique people: <b>{mine.unique}</b></div>
             <div className="pill">My entries: <b>{mine.entries}</b></div>
@@ -414,7 +414,7 @@ function BingoApp() {
               {passwordError ? <p className="notice warn" style={{ marginTop: 8 }}>{passwordError}</p> : null}
               <div className="actions">
                 <button type="submit" disabled={busy}>Continue</button>
-                <button type="button" className="secondary" onClick={goBack}>返回</button>
+                <button type="button" className="secondary" onClick={goBack}>Back</button>
               </div>
             </form>
           </section>
@@ -427,7 +427,7 @@ function BingoApp() {
                 <h2 style={{ margin: 0 }}>Choose a course</h2>
                 <div className="sub">Select a class to open its live dashboard.</div>
               </div>
-              <button className="secondary" onClick={goBack}>返回</button>
+              <button className="secondary" onClick={goBack}>Back</button>
             </div>
             <div className="course-grid">
               {courseList.map((course) => (
@@ -456,7 +456,7 @@ function BingoApp() {
                   <b>Hi, {studentName} 👋</b>
                   <div className="sub">Walk around, talk, and add names.</div>
                 </div>
-                <button className="secondary" onClick={goBack}>返回</button>
+                <button className="secondary" onClick={goBack}>Back</button>
               </div>
               <div className="progress" style={{ marginTop: 12 }}>
                 <div className="bar" style={{ width: `${(mine.filled / prompts.length) * 100}%` }} />
@@ -510,7 +510,7 @@ function BingoApp() {
                   <div className="sub">{getCourseMeta(roomCode).title}</div>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button className="secondary" onClick={goBack} disabled={busy}>返回</button>
+                  <button className="secondary" onClick={goBack} disabled={busy}>Back</button>
                   <button className="secondary" onClick={copyStudentLink}>Copy student link</button>
                   <button className="danger" onClick={() => deleteClass(roomCode)} disabled={busy}>Delete class</button>
                 </div>
