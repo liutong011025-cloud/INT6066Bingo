@@ -4,9 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useSearchParams } from "next/navigation";
 import { COURSES, getCourseMeta, getPrompts, normalizeRoom } from "@/lib/prompts";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
-
-const TEACHER_PASSWORD = "123321";
-const TEACHER_AUTH_KEY = "hb_teacher_ok";
+import { clearTeacherSession, listTeacherNames, loginTeacher, readTeacherSession, registerTeacher } from "@/lib/teacherAuth";
 const safeKey = (s) => s.trim().replace(/[.#$[\]/]/g, "_");
 const norm = (s) => s.trim().toLowerCase().replace(/\s+/g, " ");
 
@@ -46,6 +44,13 @@ function BingoApp() {
   const [busy, setBusy] = useState(false);
   const [passwordInput, setPasswordInput] = useState("");
   const [passwordError, setPasswordError] = useState("");
+  const [usernameInput, setUsernameInput] = useState("Nicole");
+  const [authMode, setAuthMode] = useState("login");
+  const [teacherNames, setTeacherNames] = useState(["Nicole"]);
+  const [customCourses, setCustomCourses] = useState([]);
+  const [editCode, setEditCode] = useState("");
+  const [editBlurb, setEditBlurb] = useState("");
+  const [editPrompts, setEditPrompts] = useState([""]);
   const [courseStats, setCourseStats] = useState({});
   const channelRef = useRef(null);
   const studentRef = useRef({ roomCode: "", studentName: "" });
@@ -60,7 +65,14 @@ function BingoApp() {
   }, [answers]);
 
   const mine = useMemo(() => statsFromAnswers(answers), [answers]);
-  const prompts = useMemo(() => getPrompts(roomCode || roomInput), [roomCode, roomInput]);
+  const prompts = useMemo(
+    () => getPrompts(roomCode || roomInput, customCourses),
+    [roomCode, roomInput, customCourses]
+  );
+  const courseMeta = useMemo(
+    () => getCourseMeta(roomCode || roomInput, customCourses),
+    [roomCode, roomInput, customCourses]
+  );
 
   const unsubscribe = useCallback(async () => {
     const supabase = isSupabaseConfigured() ? getSupabase() : null;
@@ -110,6 +122,19 @@ function BingoApp() {
     channelRef.current = channel;
   }, [unsubscribe]);
 
+  const loadCustomCourses = useCallback(async () => {
+    const { data, error } = await getSupabase()
+      .from("courses")
+      .select("id, code, title, blurb, intro_title, instructions, closing, prompts")
+      .order("created_at", { ascending: true });
+    if (error) {
+      console.error(error);
+      setCustomCourses([]);
+      return;
+    }
+    setCustomCourses(data || []);
+  }, []);
+
   const loadCourses = useCallback(async () => {
     const { data, error } = await getSupabase()
       .from("students")
@@ -132,9 +157,10 @@ function BingoApp() {
     setBusy(true);
     try {
       setView("teacherCourses");
-      await loadCourses();
+      await Promise.all([loadCourses(), loadCustomCourses()]);
       await subscribeRoom("all-courses", () => {
         loadCourses().catch(console.error);
+        loadCustomCourses().catch(console.error);
       });
     } catch (err) {
       console.error(err);
@@ -142,7 +168,7 @@ function BingoApp() {
     } finally {
       setBusy(false);
     }
-  }, [loadCourses, subscribeRoom]);
+  }, [loadCourses, loadCustomCourses, subscribeRoom]);
 
   const joinRoom = useCallback(async () => {
     const room = normalizeRoom(roomInput);
@@ -206,24 +232,55 @@ function BingoApp() {
     }
   }, [loadRoom, subscribeRoom]);
 
+  const loadTeacherNames = useCallback(async () => {
+    try {
+      const names = await listTeacherNames();
+      const next = names.includes("Nicole") ? names : ["Nicole", ...names];
+      setTeacherNames(next.length ? next : ["Nicole"]);
+      setUsernameInput((current) => current || next[0] || "Nicole");
+    } catch (err) {
+      console.error(err);
+      setTeacherNames(["Nicole"]);
+      setUsernameInput((current) => current || "Nicole");
+    }
+  }, []);
+
   const requestTeacher = useCallback(() => {
-    if (typeof window !== "undefined" && sessionStorage.getItem(TEACHER_AUTH_KEY) === "1") {
+    const session = readTeacherSession();
+    if (session) {
+      setTeacher(session);
       return showCoursePicker();
     }
     setPasswordInput("");
     setPasswordError("");
+    setAuthMode("login");
     setView("teacherLock");
-  }, [showCoursePicker]);
+    loadTeacherNames();
+  }, [loadTeacherNames, showCoursePicker]);
 
-  function submitTeacherPassword(e) {
+  async function submitTeacherAuth(e) {
     e?.preventDefault?.();
-    if (passwordInput !== TEACHER_PASSWORD) {
-      setPasswordError("Incorrect password.");
-      return;
-    }
-    sessionStorage.setItem(TEACHER_AUTH_KEY, "1");
+    setBusy(true);
     setPasswordError("");
-    showCoursePicker();
+    try {
+      const next = authMode === "register"
+        ? await registerTeacher(usernameInput, passwordInput)
+        : await loginTeacher(usernameInput, passwordInput);
+      setTeacher(next);
+      await loadTeacherNames();
+      await showCoursePicker();
+    } catch (err) {
+      setPasswordError(err.message || "Could not continue.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function signOutTeacher() {
+    clearTeacherSession();
+    setTeacher(null);
+    unsubscribe();
+    setView("setup");
   }
 
   useEffect(() => {
@@ -232,6 +289,8 @@ function BingoApp() {
     const urlRoom = normalizeRoom(searchParams.get("room") || "");
     setRoomInput(urlRoom || savedRoom);
     setNameInput(savedName);
+    setTeacher(readTeacherSession());
+    if (isSupabaseConfigured()) loadCustomCourses().catch(console.error);
     if (searchParams.get("teacher") === "1") {
       requestTeacher();
     }
@@ -255,7 +314,7 @@ function BingoApp() {
   }
 
   function goBack() {
-    if (view === "teacher") {
+    if (view === "teacher" || view === "teacherEditor") {
       showCoursePicker();
       return;
     }
@@ -264,6 +323,44 @@ function BingoApp() {
     if (view === "student") {
       setRoomInput(roomCode);
       setNameInput(studentName);
+    }
+  }
+
+  function openCourseEditor() {
+    setEditCode("");
+    setEditBlurb("");
+    setEditPrompts([""]);
+    setView("teacherEditor");
+  }
+
+  async function saveCustomCourse(e) {
+    e?.preventDefault?.();
+    const code = normalizeRoom(editCode);
+    const boxes = editPrompts.map((p) => String(p).trim()).filter(Boolean);
+    if (!code) return alert("Enter a course code.");
+    if (!boxes.length) return alert("Add at least one bingo box.");
+    if (COURSES.some((c) => c.code === code)) {
+      return alert("This course code is already used by a built-in class.");
+    }
+    setBusy(true);
+    try {
+      const { error } = await getSupabase().from("courses").insert({
+        code,
+        title: code,
+        blurb: editBlurb.trim(),
+        prompts: boxes,
+        created_by: teacher?.id || null
+      });
+      if (error) {
+        if (error.code === "23505") throw new Error("This course code already exists.");
+        throw error;
+      }
+      await showCoursePicker();
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Could not save the class.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -278,7 +375,7 @@ function BingoApp() {
   async function deleteClass(code) {
     const room = normalizeRoom(code);
     if (!room) return;
-    const meta = getCourseMeta(room);
+    const meta = getCourseMeta(room, customCourses);
     const count = courseStats[room]?.students || (normalizeRoom(roomCode) === room ? students.length : 0);
     const first = confirm(
       `Delete class ${meta.title}?\n\nThis will permanently remove ${count} student record(s) and all bingo answers.\nThis cannot be undone.`
@@ -298,6 +395,11 @@ function BingoApp() {
       if (ids.length) {
         const { error } = await getSupabase().from("students").delete().in("id", ids);
         if (error) throw error;
+      }
+      if (!COURSES.some((c) => c.code === room)) {
+        const { error: courseErr } = await getSupabase().from("courses").delete().eq("code", room);
+        if (courseErr) throw courseErr;
+        await loadCustomCourses();
       }
       if (normalizeRoom(roomCode) === room) setStudents([]);
       await loadCourses();
@@ -323,21 +425,39 @@ function BingoApp() {
   }, [students]);
 
   const courseList = useMemo(() => {
+    const knownCodes = new Set(COURSES.map((c) => c.code));
     const known = COURSES.map((c) => ({
       ...c,
       students: courseStats[c.code]?.students || 0,
       entries: courseStats[c.code]?.entries || 0,
-      uniqueSum: courseStats[c.code]?.uniqueSum || 0
+      uniqueSum: courseStats[c.code]?.uniqueSum || 0,
+      custom: false
     }));
+    const fromDb = customCourses
+      .filter((c) => !knownCodes.has(normalizeRoom(c.code)))
+      .map((c) => {
+        const code = normalizeRoom(c.code);
+        return {
+          code,
+          title: c.title || code,
+          blurb: c.blurb || "",
+          students: courseStats[code]?.students || 0,
+          entries: courseStats[code]?.entries || 0,
+          uniqueSum: courseStats[code]?.uniqueSum || 0,
+          custom: true
+        };
+      });
+    const listed = new Set([...knownCodes, ...fromDb.map((c) => c.code)]);
     const extras = Object.keys(courseStats)
-      .filter((code) => !COURSES.some((c) => c.code === normalizeRoom(code)))
+      .filter((code) => !listed.has(normalizeRoom(code)))
       .sort()
       .map((code) => ({
-        ...getCourseMeta(code),
-        ...courseStats[code]
+        ...getCourseMeta(code, customCourses),
+        ...courseStats[code],
+        custom: true
       }));
-    return [...known, ...extras];
-  }, [courseStats]);
+    return [...known, ...fromDb, ...extras];
+  }, [courseStats, customCourses]);
 
   const classConnections = ranked.reduce((x, s) => x + s.entries, 0);
   const classAvg = ranked.length
@@ -352,9 +472,10 @@ function BingoApp() {
     .slice(0, 10);
 
   const headerLabel =
-    view === "teacher" ? `Teacher dashboard · ${getCourseMeta(roomCode).title}` :
+    view === "teacher" ? `Teacher dashboard · ${courseMeta.title}` :
     view === "teacherCourses" ? "All courses" :
-    view === "teacherLock" ? "Teacher access" :
+    view === "teacherEditor" ? "Add a class" :
+    view === "teacherLock" ? "Teacher login" :
     view === "student" ? `Room: ${roomCode}` :
     "Realtime classroom edition";
 
@@ -400,20 +521,44 @@ function BingoApp() {
 
         {view === "teacherLock" && (
           <section className="panel">
-            <h2>Teacher access</h2>
-            <p className="notice">Enter the teacher password to see all courses.</p>
-            <form onSubmit={submitTeacherPassword}>
-              <div className="sub">Password</div>
+            <h2>{authMode === "register" ? "Teacher register" : "Teacher login"}</h2>
+            <p className="notice">
+              {authMode === "register"
+                ? "Create a username and password to manage classes."
+                : "Sign in with your teacher username and password."}
+            </p>
+            <form onSubmit={submitTeacherAuth}>
+              <div className="sub">Teacher</div>
+              {authMode === "login" ? (
+                <select
+                  value={usernameInput}
+                  onChange={(e) => { setUsernameInput(e.target.value); setPasswordError(""); }}
+                >
+                  {teacherNames.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  autoFocus
+                  value={usernameInput}
+                  onChange={(e) => { setUsernameInput(e.target.value); setPasswordError(""); }}
+                  placeholder="Username"
+                />
+              )}
+              <div className="sub" style={{ marginTop: 10 }}>Password</div>
               <input
                 type="password"
-                autoFocus
                 value={passwordInput}
                 onChange={(e) => { setPasswordInput(e.target.value); setPasswordError(""); }}
-                placeholder="Teacher password"
+                placeholder="Password"
               />
               {passwordError ? <p className="notice warn" style={{ marginTop: 8 }}>{passwordError}</p> : null}
               <div className="actions">
-                <button type="submit" disabled={busy}>Continue</button>
+                <button type="submit" disabled={busy}>{authMode === "register" ? "Register" : "Log in"}</button>
+                <button type="button" className="secondary" onClick={() => { setAuthMode(authMode === "register" ? "login" : "register"); setPasswordError(""); if (authMode === "register") loadTeacherNames(); }}>
+                  {authMode === "register" ? "I already have an account" : "Create an account"}
+                </button>
                 <button type="button" className="secondary" onClick={goBack}>Back</button>
               </div>
             </form>
@@ -425,9 +570,13 @@ function BingoApp() {
             <div className="top">
               <div>
                 <h2 style={{ margin: 0 }}>Choose a course</h2>
-                <div className="sub">Select a class to open its live dashboard.</div>
+                <div className="sub">{teacher ? `Signed in as ${teacher.username}` : "Select a class to open its live dashboard."}</div>
               </div>
-              <button className="secondary" onClick={goBack}>Back</button>
+              <div className="actions" style={{ marginTop: 0 }}>
+                <button onClick={openCourseEditor} disabled={busy}>Add class</button>
+                <button className="secondary" onClick={signOutTeacher}>Sign out</button>
+                <button className="secondary" onClick={goBack}>Back</button>
+              </div>
             </div>
             <div className="course-grid">
               {courseList.map((course) => (
@@ -448,6 +597,68 @@ function BingoApp() {
           </section>
         )}
 
+        {view === "teacherEditor" && (
+          <section className="panel">
+            <div className="top">
+              <div>
+                <h2 style={{ margin: 0 }}>Add a class</h2>
+                <div className="sub">Students will join with this course code.</div>
+              </div>
+              <button className="secondary" onClick={goBack}>Back</button>
+            </div>
+            <form onSubmit={saveCustomCourse} style={{ marginTop: 14 }}>
+              <div className="sub">Course code</div>
+              <input
+                value={editCode}
+                onChange={(e) => setEditCode(e.target.value)}
+                placeholder="e.g. LAW6004"
+              />
+              <div className="sub" style={{ marginTop: 10 }}>Description</div>
+              <textarea
+                className="area"
+                rows={3}
+                value={editBlurb}
+                onChange={(e) => setEditBlurb(e.target.value)}
+                placeholder="Short intro for this class"
+              />
+              <div className="sub" style={{ marginTop: 14 }}>Bingo boxes</div>
+              <div className="names" style={{ marginTop: 8 }}>
+                {editPrompts.map((text, i) => (
+                  <div className="row" key={i}>
+                    <input
+                      value={text}
+                      onChange={(e) => {
+                        const next = [...editPrompts];
+                        next[i] = e.target.value;
+                        setEditPrompts(next);
+                      }}
+                      placeholder={`Box ${i + 1}`}
+                    />
+                    <button
+                      type="button"
+                      className="secondary mini"
+                      onClick={() => {
+                        if (i === editPrompts.length - 1) {
+                          setEditPrompts([...editPrompts, ""]);
+                          return;
+                        }
+                        const next = editPrompts.filter((_, idx) => idx !== i);
+                        setEditPrompts(next.length ? next : [""]);
+                      }}
+                    >
+                      {i === editPrompts.length - 1 ? "＋" : "×"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="actions">
+                <button type="submit" disabled={busy}>Save class</button>
+                <button type="button" className="secondary" onClick={goBack}>Cancel</button>
+              </div>
+            </form>
+          </section>
+        )}
+
         {view === "student" && (
           <section>
             <div className="panel">
@@ -463,16 +674,16 @@ function BingoApp() {
               </div>
               <div className="sub" style={{ marginTop: 6 }}>{mine.filled} / {prompts.length} prompts completed</div>
             </div>
-            {getCourseMeta(roomCode).instructions?.length ? (
+            {courseMeta.instructions?.length ? (
               <div className="panel">
-                <h3>{getCourseMeta(roomCode).introTitle || "How to play"}</h3>
+                <h3>{courseMeta.introTitle || "How to play"}</h3>
                 <ol className="howto">
-                  {getCourseMeta(roomCode).instructions.map((item) => (
+                  {courseMeta.instructions.map((item) => (
                     <li key={item}>{item}</li>
                   ))}
                 </ol>
-                {getCourseMeta(roomCode).closing ? (
-                  <p className="howto-close"><b>{getCourseMeta(roomCode).closing}</b></p>
+                {courseMeta.closing ? (
+                  <p className="howto-close"><b>{courseMeta.closing}</b></p>
                 ) : null}
               </div>
             ) : null}
@@ -520,7 +731,7 @@ function BingoApp() {
               <div className="top">
                 <div>
                   <h2 style={{ margin: 0 }}>Live Dashboard</h2>
-                  <div className="sub">{getCourseMeta(roomCode).title}</div>
+                  <div className="sub">{courseMeta.title}</div>
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button className="secondary" onClick={goBack} disabled={busy}>Back</button>
