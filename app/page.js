@@ -46,6 +46,7 @@ function BingoApp() {
   const [passwordError, setPasswordError] = useState("");
   const [usernameInput, setUsernameInput] = useState("Nicole");
   const [authMode, setAuthMode] = useState("login");
+  const [teacher, setTeacher] = useState(null);
   const [teacherNames, setTeacherNames] = useState(["Nicole"]);
   const [customCourses, setCustomCourses] = useState([]);
   const [editCode, setEditCode] = useState("");
