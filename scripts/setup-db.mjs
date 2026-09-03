@@ -27,6 +27,13 @@ try {
   `;
   console.log("students table is ready:");
   for (const col of tables) console.log(`  - ${col.column_name} (${col.data_type})`);
+  const extra = await sql`
+    select table_name
+    from information_schema.tables
+    where table_schema = 'public' and table_name in ('teachers', 'courses')
+    order by table_name
+  `;
+  console.log("auth/course tables:", extra.map((t) => t.table_name).join(", ") || "(missing)");
 } finally {
   await sql.end();
 }
