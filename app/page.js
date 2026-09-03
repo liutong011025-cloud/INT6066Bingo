@@ -126,7 +126,7 @@ function BingoApp() {
   const loadCustomCourses = useCallback(async () => {
     const { data, error } = await getSupabase()
       .from("courses")
-      .select("id, code, title, blurb, intro_title, instructions, closing, prompts")
+      .select("id, code, title, blurb, intro_title, instructions, closing, prompts, created_by")
       .order("created_at", { ascending: true });
     if (error) {
       console.error(error);
@@ -426,16 +426,9 @@ function BingoApp() {
   }, [students]);
 
   const courseList = useMemo(() => {
-    const knownCodes = new Set(COURSES.map((c) => c.code));
-    const known = COURSES.map((c) => ({
-      ...c,
-      students: courseStats[c.code]?.students || 0,
-      entries: courseStats[c.code]?.entries || 0,
-      uniqueSum: courseStats[c.code]?.uniqueSum || 0,
-      custom: false
-    }));
-    const fromDb = customCourses
-      .filter((c) => !knownCodes.has(normalizeRoom(c.code)))
+    if (!teacher?.id) return [];
+    return customCourses
+      .filter((c) => String(c.created_by) === String(teacher.id))
       .map((c) => {
         const code = normalizeRoom(c.code);
         return {
@@ -445,20 +438,10 @@ function BingoApp() {
           students: courseStats[code]?.students || 0,
           entries: courseStats[code]?.entries || 0,
           uniqueSum: courseStats[code]?.uniqueSum || 0,
-          custom: true
+          custom: !COURSES.some((built) => built.code === code)
         };
       });
-    const listed = new Set([...knownCodes, ...fromDb.map((c) => c.code)]);
-    const extras = Object.keys(courseStats)
-      .filter((code) => !listed.has(normalizeRoom(code)))
-      .sort()
-      .map((code) => ({
-        ...getCourseMeta(code, customCourses),
-        ...courseStats[code],
-        custom: true
-      }));
-    return [...known, ...fromDb, ...extras];
-  }, [courseStats, customCourses]);
+  }, [courseStats, customCourses, teacher]);
 
   const classConnections = ranked.reduce((x, s) => x + s.entries, 0);
   const classAvg = ranked.length
@@ -595,6 +578,9 @@ function BingoApp() {
                 </div>
               ))}
             </div>
+            {!courseList.length ? (
+              <p className="notice">No classes yet. Add a class to get started.</p>
+            ) : null}
           </section>
         )}
 
