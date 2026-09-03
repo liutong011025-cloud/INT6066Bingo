@@ -10,35 +10,38 @@ if (!connection) {
   process.exit(1);
 }
 
-function bytesToHex(bytes) {
-  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-async function hashPassword(password, salt) {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits(
-    { name: "PBKDF2", salt: enc.encode(salt), iterations: 120000, hash: "SHA-256" },
-    key,
-    256
-  );
-  return Buffer.from(bits).toString("base64");
-}
-
-const username = "Nicole";
-const password = "yinyin2948";
-const salt = bytesToHex(crypto.getRandomValues(new Uint8Array(16)));
-const hash = await hashPassword(password, salt);
 const sql = postgres(connection, { max: 1, ssl: "require" });
 
+const nicoleCourses = [
+  { code: "INT6066", title: "INT 6066", blurb: "Education and design bingo" },
+  { code: "INT6136P", title: "INT 6136P", blurb: "AI in the workplace bingo" },
+  { code: "LAW6003", title: "LAW 6003", blurb: "法律、AI 与创业 Bingo" }
+];
+
 try {
-  await sql`delete from public.teachers where lower(username) = lower(${username})`;
-  await sql`
-    insert into public.teachers (username, password_salt, password_hash)
-    values (${username}, ${salt}, ${hash})
+  const teachers = await sql`select id from public.teachers where lower(username) = 'nicole' limit 1`;
+  if (!teachers.length) {
+    console.error("Nicole is not in teachers. Seed the teacher first.");
+    process.exit(1);
+  }
+  const owner = teachers[0].id;
+  for (const course of nicoleCourses) {
+    await sql`
+      insert into public.courses (code, title, blurb, created_by)
+      values (${course.code}, ${course.title}, ${course.blurb}, ${owner})
+      on conflict (code) do update
+        set title = excluded.title,
+            blurb = excluded.blurb,
+            created_by = excluded.created_by
+    `;
+  }
+  const rows = await sql`
+    select code, title, created_by
+    from public.courses
+    where created_by = ${owner}
+    order by code
   `;
-  const rows = await sql`select username from public.teachers order by username`;
-  console.log("teachers:", rows.map((r) => r.username).join(", "));
+  console.log("Nicole courses:", rows.map((r) => r.code).join(", "));
 } finally {
   await sql.end();
 }
