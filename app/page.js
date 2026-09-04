@@ -488,7 +488,7 @@ function BingoApp() {
             <div className="setup-grid">
               <div>
                 <div className="sub">Room code</div>
-                <input value={roomInput} onChange={(e) => setRoomInput(e.target.value)} placeholder="e.g. INT6066, INT6136P, LAW6003" />
+                <input value={roomInput} onChange={(e) => setRoomInput(e.target.value)} placeholder="e.g. INT6066, INT6136P, INT6136E, LAW6003" />
               </div>
               <div>
                 <div className="sub">Your name</div>
@@ -499,7 +499,7 @@ function BingoApp() {
               <button onClick={joinRoom} disabled={busy}>Start Bingo</button>
               <button className="secondary" onClick={requestTeacher} disabled={busy}>Teacher dashboard</button>
             </div>
-            <p className="notice">Students use the same room code. INT6066, INT6136P, and LAW6003 use different bingo cards. Progress appears on the teacher dashboard in real time.</p>
+            <p className="notice">Students use the same room code. INT6066, INT6136P, INT6136E, and LAW6003 use different bingo cards. Progress appears on the teacher dashboard in real time.</p>
           </section>
         )}
 
